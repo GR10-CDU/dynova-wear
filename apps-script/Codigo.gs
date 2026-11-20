@@ -185,6 +185,35 @@ function _mover(varianteId, cantidad, tipo, nota, costo, ventaId) {
   return nuevo;
 }
 
+// Stock de varios talles a la vez: una lectura y una escritura de la columna stock
+// lista = [{id, cantidad, costo}] (cantidad + entra, - sale). Devuelve {id: stockNuevo}
+function _moverVarios(lista, tipo, nota, ventaId) {
+  if (!lista.length) return {};
+  var sh = hoja('Variantes'), n = sh.getLastRow();
+  if (n < 2) throw new Error('Talle inexistente');
+  var colStock = TABLAS.Variantes.indexOf('stock') + 1;
+  var ids = sh.getRange(2, 1, n - 1, 1).getValues();
+  var stocks = sh.getRange(2, colStock, n - 1, 1).getValues();
+  var pos = {};
+  for (var i = 0; i < ids.length; i++) pos[String(ids[i][0])] = i;
+  var res = {};
+  lista.forEach(function (x) {
+    var i = pos[String(x.id)];
+    if (i === undefined) throw new Error('Talle inexistente');
+    var nuevo = Number(stocks[i][0] || 0) + Number(x.cantidad);
+    if (nuevo < 0) throw new Error('El stock no puede quedar negativo');
+    stocks[i][0] = nuevo;
+    res[x.id] = nuevo;
+  });
+  sh.getRange(2, colStock, n - 1, 1).setValues(stocks);
+  var f = ahora();
+  insertarVarios('Movimientos', lista.map(function (x) {
+    return { fecha: f, variante_id: x.id, tipo: tipo, cantidad: x.cantidad, costo_unit: x.costo == null ? null : x.costo,
+      venta_id: ventaId || null, nota: nota || null };
+  }));
+  return res;
+}
+
 function productoConVariantes(p, vars) {
   p.variantes = vars.filter(function (v) { return v.producto_id === p.id; });
   return p;
@@ -240,7 +269,8 @@ var ACCIONES = {
   borrarVariante: function (id) { borrar('Variantes', id); },
   moverStock: function (id, cant, tipo, nota, costo) { return _mover(id, cant, tipo || 'ajuste', nota, costo); },
   moverStockVarios: function (lista, tipo, nota, costo) {
-    return lista.map(function (x) { return { id: x.id, stock: _mover(x.id, x.cantidad, tipo, nota, costo) }; });
+    var r = _moverVarios(lista.map(function (x) { return { id: x.id, cantidad: x.cantidad, costo: costo }; }), tipo, nota);
+    return lista.map(function (x) { return { id: x.id, stock: r[x.id] }; });
   },
 
   vender: function (v) {
@@ -265,15 +295,17 @@ var ACCIONES = {
       return { venta_id: venta.id, variante_id: l.va.id, producto_id: l.p.id, producto_nombre: l.p.nombre, talle: l.va.talle,
         color: l.va.color || '', cantidad: l.cant, precio_unit: l.precio, costo_unit: l.p.costo };
     }));
-    lineas.forEach(function (l) { _mover(l.va.id, -l.cant, 'venta', null, l.p.costo, venta.id); });
+    _moverVarios(lineas.map(function (l) { return { id: l.va.id, cantidad: -l.cant, costo: l.p.costo }; }), 'venta', null, venta.id);
     return venta.id;
   },
   anularVenta: function (id) {
     var v = obtener('Ventas', id);
     if (!v || v.anulada) throw new Error('La venta no existe o ya estaba anulada');
-    todos('VentaItems').filter(function (i) { return i.venta_id === id; }).forEach(function (i) {
-      if (i.variante_id && obtener('Variantes', i.variante_id)) _mover(i.variante_id, i.cantidad, 'anulacion', 'Venta anulada', null, id);
-    });
+    var existen = {};
+    todos('Variantes').forEach(function (x) { existen[x.id] = true; });
+    var vuelven = todos('VentaItems').filter(function (i) { return i.venta_id === id && i.variante_id && existen[i.variante_id]; })
+      .map(function (i) { return { id: i.variante_id, cantidad: i.cantidad, costo: null }; });
+    _moverVarios(vuelven, 'anulacion', 'Venta anulada', id);
     actualizar('Ventas', id, { anulada: true });
   },
   ventas: function (desde, hasta) {

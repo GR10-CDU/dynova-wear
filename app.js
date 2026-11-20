@@ -650,7 +650,12 @@ function detalleVenta(v) {
     ${v.anulada ? "" : `<button class="btn peligro full" id="anular" style="margin-top:16px">Anular venta (devuelve el stock)</button>`}`, h => {
     $("#anular", h) && ($("#anular", h).onclick = async () => {
       if (!await confirmar(`¿Anular la venta #${v.id}? Las prendas vuelven al stock.`, "Anular")) return;
-      await intentar(async () => { await S.api.anularVenta(v.id); await cargarCatalogo(); toast("Venta anulada, stock devuelto"); vVentas(); });
+      await intentar(async () => {
+        await S.api.anularVenta(v.id);
+        for (const i of v.venta_items) { const p = S.productos.find(x => x.id === i.producto_id); const va = p?.variantes.find(x => x.id === i.variante_id); if (va) va.stock += i.cantidad; }
+        cargarCatalogo().catch(() => {});
+        toast("Venta anulada, stock devuelto"); vVentas();
+      });
     });
   });
 }
