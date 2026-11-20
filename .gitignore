@@ -1,0 +1,7 @@
+# Datos del negocio: NO van al repo público
+supabase/seed.sql
+demo-datos.json
+herramientas/logo_original.png
+*.xlsx
+.secretos.env
+.DS_Store

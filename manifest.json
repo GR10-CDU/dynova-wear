@@ -1,0 +1,9 @@
+{
+  "name": "DYNOVA wear · Gestión",
+  "short_name": "DYNOVA",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#07140f",
+  "theme_color": "#07140f",
+  "icons": [{ "src": "icono.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }]
+}
