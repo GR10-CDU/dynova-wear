@@ -70,12 +70,28 @@ function toast(msg, err = false) {
   document.body.appendChild(t);
   setTimeout(() => t.remove(), err ? 4500 : 2500);
 }
-async function intentar(fn, btn) {
+// Cartel "trabajando" con ruedita: bloquea la pantalla para que no se toque dos veces
+let ocupadoEl = null, ocupadoN = 0;
+function ocupado(msg) {
+  ocupadoN++;
+  if (!ocupadoEl) {
+    ocupadoEl = document.createElement("div");
+    ocupadoEl.className = "ocupado";
+    ocupadoEl.innerHTML = `<div class="ocupado-pill glass"><span class="spin"></span><span class="txt"></span></div>`;
+    document.body.appendChild(ocupadoEl);
+  }
+  ocupadoEl.querySelector(".txt").textContent = msg;
+  return () => { if (--ocupadoN <= 0) { ocupadoN = 0; ocupadoEl?.remove(); ocupadoEl = null; } };
+}
+async function intentar(fn, btn, msg = "Guardando…") {
+  const fin = msg === false ? () => {} : ocupado(msg);
   if (btn) btn.disabled = true;
   try { return await fn(); }
   catch (e) { console.error(e); toast(e.message || "Algo salió mal", true); }
-  finally { if (btn) btn.disabled = false; }
+  finally { fin(); if (btn) btn.disabled = false; }
 }
+const con = msg => (fn, btn) => intentar(fn, btn, msg);
+const cargando = txt => `<div class="cargando"><span class="spin grande"></span><div>${txt}</div></div>`;
 
 // ---- Hoja inferior ----
 let hojaActual = null;
@@ -151,7 +167,7 @@ async function vInicio() {
   const per = S.filtros.inicio;
   vista.innerHTML = `<h1>Hola 👋</h1>
     <div class="pills">${pills([["hoy", "Hoy"], ["semana", "7 días"], ["mes", "Este mes"], ["mespasado", "Mes pasado"], ["anio", "Este año"]], per)}</div>
-    <div id="dash"><div class="cargando">Cargando…</div></div>`;
+    <div id="dash">${cargando("Calculando ventas y ganancias…")}</div>`;
   activarPills(vista, "data-p", p => { S.filtros.inicio = p; vInicio(); });
   const [d, h] = rango(per);
   const [ventas, gastos, compras] = await Promise.all([S.api.ventas(d, h), S.api.gastos(d, h), S.api.compras(d, h)]);
@@ -295,7 +311,7 @@ window.addEventListener("hashchange", () => { if (!location.hash.startsWith("#ve
 
 async function abrirCobro() {
   let clientes = [];
-  intentar(async () => { clientes = await S.api.clientes(); const dl = $("#dlCli"); if (dl) dl.innerHTML = clientes.map(c => `<option value="${esc(c.nombre)}">`).join(""); });
+  con(false)(async () => { clientes = await S.api.clientes(); const dl = $("#dlCli"); if (dl) dl.innerHTML = clientes.map(c => `<option value="${esc(c.nombre)}">`).join(""); });
   const st = { metodo: "Efectivo", canal: "Local", descTipo: "$" };
   abrirHoja(`<h3>Cobrar</h3>
     <div id="items"></div>
@@ -345,7 +361,7 @@ async function abrirCobro() {
     activarPills($("#dt", h), "data-d", d => { st.descTipo = d; calc(); });
     $("#desc", h).oninput = calc; $("#rec", h).oninput = calc;
     $("#cli", h).oninput = e => { const c = clientes.find(x => x.nombre === e.target.value); if (c?.telefono) $("#tel", h).value = c.telefono; };
-    $("#confirmar", h).onclick = e => intentar(async () => {
+    $("#confirmar", h).onclick = e => con("Registrando la venta…")(async () => {
       const t = calc();
       const nombre = $("#cli", h).value.trim(), tel = $("#tel", h).value.trim();
       let cliente = clientes.find(x => x.nombre.toLowerCase() === nombre.toLowerCase());
@@ -483,7 +499,7 @@ function editarProducto(id) {
       if (e.target.value !== "nuevo") return;
       const n = prompt("Nombre del proveedor");
       if (!n?.trim()) { e.target.value = ""; return; }
-      await intentar(async () => {
+      await con("Creando proveedor…")(async () => {
         const np = await S.api.guardarProveedor({ nombre: n.trim() });
         S.proveedores.push(np); S.proveedores.sort((a, b) => a.nombre.localeCompare(b.nombre));
         const o = document.createElement("option"); o.value = np.id; o.textContent = np.nombre; o.selected = true;
@@ -508,7 +524,7 @@ function editarProducto(id) {
           <button class="btn pri full" id="ingOk" style="margin-top:8px">Sumar al stock</button>` : "")
         : `<div class="sub" style="padding:10px 0">Todavía no tiene talles. Tocá los de abajo para agregarlos.</div>`;
 
-      $$("[data-aj]", h).forEach(b => b.onclick = () => intentar(async () => {
+      $$("[data-aj]", h).forEach(b => b.onclick = () => con("Actualizando stock…")(async () => {
         const v = p.variantes.find(x => x.id === +b.dataset.id);
         const delta = +b.dataset.aj;
         v.stock = await S.api.moverStock(v.id, delta, "ajuste", delta > 0 ? "Ajuste manual +" : "Ajuste manual −");
@@ -517,13 +533,13 @@ function editarProducto(id) {
       $$("[data-del]", h).forEach(b => b.onclick = async () => {
         const v = p.variantes.find(x => x.id === +b.dataset.del);
         if (!await confirmar(`¿Quitar el talle ${etiquetaVar(v)}${v.stock ? ` (tiene ${v.stock} en stock)` : ""}?`, "Quitar")) return editarProducto(id);
-        await intentar(async () => { await S.api.borrarVariante(v.id); p.variantes = p.variantes.filter(x => x.id !== v.id); });
+        await con("Quitando talle…")(async () => { await S.api.borrarVariante(v.id); p.variantes = p.variantes.filter(x => x.id !== v.id); });
         editarProducto(id);
       });
       $$("[data-nst]", h).forEach(i => i.oninput = () => nuevas[+i.dataset.nst].stock = +i.value || 0);
       $$("[data-ndel]", h).forEach(b => b.onclick = () => { nuevas.splice(+b.dataset.ndel, 1); pintarVars(); });
       const ok = $("#ingOk", h);
-      if (ok) ok.onclick = () => intentar(async () => {
+      if (ok) ok.onclick = () => con("Sumando al stock…")(async () => {
         const costo = +$("#ingCosto", h).value || 0, nota = $("#ingNota", h).value || "Ingreso de mercadería";
         const lista = $$("[data-ing]", h).map(i => ({ id: +i.dataset.ing, cantidad: parseInt(i.value) || 0 })).filter(x => x.cantidad > 0);
         const n = sum(lista, x => x.cantidad);
@@ -552,9 +568,9 @@ function editarProducto(id) {
     $("#cancelar", h).onclick = cerrarHoja;
     $("#borrar", h) && ($("#borrar", h).onclick = async () => {
       if (!await confirmar(`¿Eliminar "${p.nombre}"? Las ventas viejas quedan registradas.`, "Eliminar")) return editarProducto(id);
-      await intentar(async () => { await S.api.borrarProducto(id); S.productos = S.productos.filter(x => x.id !== id); toast("Prenda eliminada"); vStock(); });
+      await con("Eliminando prenda…")(async () => { await S.api.borrarProducto(id); S.productos = S.productos.filter(x => x.id !== id); toast("Prenda eliminada"); vStock(); });
     });
-    $("#guardar", h).onclick = e => intentar(async () => {
+    $("#guardar", h).onclick = e => con("Guardando prenda…")(async () => {
       const nombre = $("#nom", h).value.trim();
       if (!nombre) return toast("Falta el nombre", true);
       const prov = $("#prov", h).value;
@@ -588,7 +604,7 @@ function actualizarPrecios(lista) {
     };
     $("#pct", h).oninput = prev;
     activarPills($("#red", h), "data-r", r => { red = +r; prev(); });
-    $("#ok", h).onclick = e => intentar(async () => {
+    $("#ok", h).onclick = e => con("Actualizando precios…")(async () => {
       const pct = +$("#pct", h).value;
       if (!pct) return toast("Poné un porcentaje", true);
       if (!await confirmar(`¿Cambiar el precio de ${lista.length} prendas un ${pct}%?`, "Aplicar", false)) return;
@@ -605,7 +621,7 @@ async function vVentas() {
   const per = S.filtros.ventas;
   vista.innerHTML = `<h1>Ventas</h1>
     <div class="pills">${pills([["hoy", "Hoy"], ["ayer", "Ayer"], ["semana", "7 días"], ["mes", "Este mes"], ["mespasado", "Mes pasado"], ["anio", "Este año"]], per)}</div>
-    <div id="cont"><div class="cargando">Cargando…</div></div>`;
+    <div id="cont">${cargando("Cargando ventas…")}</div>`;
   activarPills(vista, "data-p", p => { S.filtros.ventas = p; vVentas(); });
   const [d, h] = rango(per);
   const ventas = await S.api.ventas(d, h);
@@ -650,7 +666,7 @@ function detalleVenta(v) {
     ${v.anulada ? "" : `<button class="btn peligro full" id="anular" style="margin-top:16px">Anular venta (devuelve el stock)</button>`}`, h => {
     $("#anular", h) && ($("#anular", h).onclick = async () => {
       if (!await confirmar(`¿Anular la venta #${v.id}? Las prendas vuelven al stock.`, "Anular")) return;
-      await intentar(async () => {
+      await con("Anulando la venta…")(async () => {
         await S.api.anularVenta(v.id);
         for (const i of v.venta_items) { const p = S.productos.find(x => x.id === i.producto_id); const va = p?.variantes.find(x => x.id === i.variante_id); if (va) va.stock += i.cantidad; }
         cargarCatalogo().catch(() => {});
@@ -666,7 +682,7 @@ async function vGastos() {
   const [d, h] = mesOffset(off);
   vista.innerHTML = `<h1>Gastos</h1>
     <div class="mes-nav glass"><button class="redondo" id="ant">‹</button><b>${MESES[d.getMonth()]} ${d.getFullYear()}</b><button class="redondo" id="sig">›</button></div>
-    <div id="cont"><div class="cargando">Cargando…</div></div>
+    <div id="cont">${cargando("Cargando gastos…")}</div>
     <button class="fab" id="nuevo">＋ Gasto</button>`;
   $("#ant").onclick = () => { S.filtros.mesGastos--; vGastos(); };
   $("#sig").onclick = () => { S.filtros.mesGastos++; vGastos(); };
@@ -692,7 +708,7 @@ async function vGastos() {
     : `<div class="vacio glass sec"><div class="emo">🧾</div>No hay gastos este mes.<br>Cargá alquiler, luz, internet, publicidad…</div>`}
     <p class="mini sec">💡 La mercadería que comprás no va acá: se carga en Stock → "Ingresar mercadería", y su costo se descuenta solo cuando la vendés.</p>`;
   $$(".fila", vista).forEach(r => r.onclick = () => editarGasto(gastos.find(g => g.id === +r.dataset.id), d));
-  $("#copiar").onclick = e => intentar(async () => {
+  $("#copiar").onclick = e => con("Copiando gastos fijos…")(async () => {
     const [pd, ph] = mesOffset(off - 1);
     const fijos = (await S.api.gastos(pd, ph)).filter(g => g.fijo);
     if (!fijos.length) return toast("El mes anterior no tiene gastos marcados como fijos", true);
@@ -738,7 +754,7 @@ function editarGasto(g, mesBase) {
       activarPills($("#cat", h), "data-c", c => cat = c);
     };
     setTimeout(() => $("#monto", h).focus(), 250);
-    $("#ok", h).onclick = e => intentar(async () => {
+    $("#ok", h).onclick = e => con("Guardando gasto…")(async () => {
       const monto = +$("#monto", h).value;
       if (!(monto > 0)) return toast("Poné el monto", true);
       await S.api.guardarGasto({ ...(g.id ? { id: g.id } : {}), fecha: $("#fecha", h).value || dia(new Date()), categoria: cat,
@@ -747,7 +763,7 @@ function editarGasto(g, mesBase) {
     }, e.currentTarget);
     $("#borrar", h) && ($("#borrar", h).onclick = async () => {
       if (!await confirmar("¿Eliminar este gasto?", "Eliminar")) return;
-      await intentar(async () => { await S.api.borrarGasto(g.id); toast("Gasto eliminado"); vGastos(); });
+      await con("Eliminando gasto…")(async () => { await S.api.borrarGasto(g.id); toast("Gasto eliminado"); vGastos(); });
     });
   });
 }
@@ -791,21 +807,21 @@ async function vProveedores() {
     <div class="campo"><label>WhatsApp / teléfono</label><input class="in" id="t" type="tel" value="${esc(p.telefono || "")}"></div>
     <div class="campo"><label>Notas (alias, condiciones, mínimo de compra…)</label><textarea class="in" id="no" rows="3">${esc(p.notas || "")}</textarea></div>
     <div class="acciones" style="justify-content:space-between">${p.id ? `<button class="btn peligro" id="b">Eliminar</button>` : "<span></span>"}<button class="btn pri" id="ok">Guardar</button></div>`, h => {
-    $("#ok", h).onclick = e => intentar(async () => {
+    $("#ok", h).onclick = e => con("Guardando proveedor…")(async () => {
       const nombre = $("#n", h).value.trim(); if (!nombre) return toast("Falta el nombre", true);
       await S.api.guardarProveedor({ ...(p.id ? { id: p.id } : {}), nombre, telefono: $("#t", h).value.trim() || null, notas: $("#no", h).value.trim() || null });
       await cargarCatalogo(); cerrarHoja(); toast("Proveedor guardado"); pintar();
     }, e.currentTarget);
     $("#b", h) && ($("#b", h).onclick = async () => {
       if (!await confirmar(`¿Eliminar ${p.nombre}? Sus prendas quedan sin proveedor.`, "Eliminar")) return;
-      await intentar(async () => { await S.api.borrarProveedor(p.id); await cargarCatalogo(); toast("Eliminado"); pintar(); });
+      await con("Eliminando proveedor…")(async () => { await S.api.borrarProveedor(p.id); await cargarCatalogo(); toast("Eliminado"); pintar(); });
     });
   });
   pintar();
 }
 
 async function vClientes() {
-  vista.innerHTML = `${volver}<h1>Clientes</h1><div class="cargando">Cargando…</div>`;
+  vista.innerHTML = `${volver}<h1>Clientes</h1>${cargando("Cargando clientes…")}`;
   const [cl, vs] = await Promise.all([S.api.clientes(), S.api.ventasCliente()]);
   const est = {};
   vs.forEach(v => { const e = est[v.cliente_id] ||= { n: 0, t: 0, u: null }; e.n++; e.t += +v.total; if (!e.u || v.fecha > e.u) e.u = v.fecha; });
@@ -828,14 +844,14 @@ async function vClientes() {
     <div class="campo"><label>Instagram</label><input class="in" id="i" value="${esc(c.instagram || "")}" placeholder="@usuario"></div></div>
     <div class="campo"><label>Notas (talle, gustos…)</label><textarea class="in" id="no" rows="2">${esc(c.notas || "")}</textarea></div>
     <div class="acciones" style="justify-content:space-between">${c.id ? `<button class="btn peligro" id="b">Eliminar</button>` : "<span></span>"}<button class="btn pri" id="ok">Guardar</button></div>`, h => {
-    $("#ok", h).onclick = e => intentar(async () => {
+    $("#ok", h).onclick = e => con("Guardando cliente…")(async () => {
       const nombre = $("#n", h).value.trim(); if (!nombre) return toast("Falta el nombre", true);
       await S.api.guardarCliente({ ...(c.id ? { id: c.id } : {}), nombre, telefono: $("#t", h).value.trim() || null, instagram: $("#i", h).value.trim() || null, notas: $("#no", h).value.trim() || null });
       toast("Cliente guardado"); vClientes();
     }, e.currentTarget);
     $("#b", h) && ($("#b", h).onclick = async () => {
       if (!await confirmar(`¿Eliminar a ${c.nombre}? Sus compras quedan registradas.`, "Eliminar")) return;
-      await intentar(async () => { await S.api.borrarCliente(c.id); toast("Eliminado"); vClientes(); });
+      await con("Eliminando cliente…")(async () => { await S.api.borrarCliente(c.id); toast("Eliminado"); vClientes(); });
     });
   });
   $("#q").oninput = e => pintar(e.target.value);
@@ -844,7 +860,7 @@ async function vClientes() {
 }
 
 async function vMovimientos() {
-  vista.innerHTML = `${volver}<h1>Movimientos de stock</h1><div class="cargando">Cargando…</div>`;
+  vista.innerHTML = `${volver}<h1>Movimientos de stock</h1>${cargando("Cargando movimientos…")}`;
   const ms = await S.api.movimientos(300);
   const tipos = { venta: ["Venta", "neg"], compra: ["Compra", "pos"], alta: ["Stock inicial", "pos"], ajuste: ["Ajuste", ""], anulacion: ["Venta anulada", "pos"] };
   vista.innerHTML = `${volver}<h1>Movimientos de stock</h1><p class="sub">Los últimos 300: cada prenda que entró o salió.</p>
@@ -861,7 +877,7 @@ function vExportar() {
       <a class="glass" href="javascript:void 0" data-x="ventas"><span class="emo">🧾</span><b>Todas las ventas</b><span class="mini">Detalle prenda por prenda</span></a>
       <a class="glass" href="javascript:void 0" data-x="gastos"><span class="emo">💸</span><b>Todos los gastos</b></a>
     </div>`;
-  $$("[data-x]", vista).forEach(a => a.onclick = () => intentar(async () => {
+  $$("[data-x]", vista).forEach(a => a.onclick = () => con("Preparando archivo…")(async () => {
     const x = a.dataset.x, hoy = dia(new Date());
     if (x === "stock") { location.hash = "#stock"; setTimeout(() => $("#exp")?.click(), 300); return; }
     if (x === "ventas") {
@@ -893,7 +909,7 @@ function vAjustes() {
       </div>
       <button class="btn pri" id="ok">Guardar</button>
     </div>`;
-  $("#ok").onclick = e => intentar(async () => {
+  $("#ok").onclick = e => con("Guardando ajustes…")(async () => {
     const v = { nombre: $("#nombre").value.trim() || "DYNOVA wear", whatsapp: $("#whatsapp").value.trim(), instagram: $("#instagram").value.trim(), gracias: $("#gracias").value.trim(),
       margen: +$("#margen").value || 0, minimo: +$("#minimo").value || 0, redondeo: +$("#redondeo").value || 0 };
     await S.api.guardarAjuste("negocio", v); S.ajustes.negocio = v; toast("Ajustes guardados");
@@ -903,6 +919,7 @@ function vAjustes() {
 // ================= Arranque =================
 (async () => {
   try {
+    vista.innerHTML = cargando("Cargando prendas y stock…");
     S.api = await crearApi();
     $("#chipDemo").hidden = !S.api.demo;
     const [, aj] = await Promise.all([cargarCatalogo(), S.api.ajustes()]);
