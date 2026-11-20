@@ -91,6 +91,9 @@ async function intentar(fn, btn, msg = "Guardando…") {
   finally { fin(); if (btn) btn.disabled = false; }
 }
 const con = msg => (fn, btn) => intentar(fn, btn, msg);
+// Resumen en formato listado: [titulo, valor, detalle, clase]
+const kfila = (l, v, d = "", cls = "") => `<div class="fila kfila"><div class="info"><div class="tit">${l}</div>${d ? `<div class="mini">${d}</div>` : ""}</div><div class="der monto ${cls}">${v}</div></div>`;
+const resumen = (titulo, filas) => `<div class="glass lista">${titulo ? `<div class="lista-cab">${titulo}</div>` : ""}${filas.join("")}</div>`;
 const cargando = txt => `<div class="cargando"><span class="spin grande"></span><div>${txt}</div></div>`;
 
 // ---- Hoja inferior ----
@@ -166,7 +169,7 @@ window.addEventListener("hashchange", router);
 async function vInicio() {
   const per = S.filtros.inicio;
   vista.innerHTML = `<h1>Hola 👋</h1>
-    <div class="pills">${pills([["hoy", "Hoy"], ["semana", "7 días"], ["mes", "Este mes"], ["mespasado", "Mes pasado"], ["anio", "Este año"]], per)}</div>
+    <div class="pills">${pills([["hoy", "Hoy"], ["semana", "7 días"], ["mes", "Este mes"], ["mespasado", "Mes pasado"], ["anio", "Este año"], ["todo", "Todo"]], per)}</div>
     <div id="dash">${cargando("Calculando ventas y ganancias…")}</div>`;
   activarPills(vista, "data-p", p => { S.filtros.inicio = p; vInicio(); });
   const [d, h] = rango(per);
@@ -191,6 +194,13 @@ async function vInicio() {
   } else if (per === "anio") {
     grupos = MESES.map((m, i) => ({ k: i, l: m[0].toUpperCase(), v: 0 }));
     act.forEach(v => grupos[new Date(v.fecha).getMonth()].v += +v.total);
+  } else if (per === "todo") {
+    const mk = f => { const x = new Date(f); return x.getFullYear() * 12 + x.getMonth(); };
+    if (act.length) {
+      const desde = Math.min(...act.map(v => mk(v.fecha))), hasta = mk(new Date());
+      for (let k = desde; k <= hasta; k++) grupos.push({ k, l: MESES[k % 12].slice(0, 3) + (k % 12 === 0 || k === desde ? " " + String(Math.floor(k / 12)).slice(2) : ""), v: 0 });
+      act.forEach(v => { const g = grupos.find(x => x.k === mk(v.fecha)); if (g) g.v += +v.total; });
+    }
   } else {
     for (let x = new Date(d); x < h && x <= new Date(); x.setDate(x.getDate() + 1)) grupos.push({ k: dia(x), l: x.getDate(), v: 0 });
     act.forEach(v => { const g = grupos.find(x => x.k === dia(new Date(v.fecha))); if (g) g.v += +v.total; });
@@ -206,28 +216,30 @@ async function vInicio() {
   const maxT = Math.max(1, ...topL.map(t => t.u)), maxM = Math.max(1, ...metL.map(m => m[1]));
 
   $("#dash").innerHTML = `
-    <div class="grid g4">
-      <div class="kpi glass destacado"><div class="l">Ventas</div><div class="v">${$$m(total)}</div><div class="d">${act.length} ventas · ${unidades} prendas</div></div>
-      <div class="kpi glass"><div class="l">Ganancia bruta</div><div class="v pos">${$$m(bruta)}</div><div class="d">ventas − costo de lo vendido${total ? ` · ${Math.round(bruta / total * 100)}%` : ""}</div></div>
-      <div class="kpi glass"><div class="l">Gastos</div><div class="v">${$$m(gt)}</div><div class="d">${gastos.length} gastos cargados</div></div>
-      <div class="kpi glass"><div class="l">Ganancia neta</div><div class="v ${neta >= 0 ? "pos" : "neg"}">${$$m(neta)}</div><div class="d">bruta − gastos</div></div>
+    <div class="grid g2">
+      ${resumen("Resultado", [
+        kfila("Ventas", $$m(total), `${act.length} ventas · ${unidades} prendas${act.length ? " · ticket prom. " + $$m(total / act.length) : ""}`),
+        kfila("Costo de lo vendido", "−" + $$m(costo), "lo que habías pagado esas prendas"),
+        kfila("Ganancia bruta", $$m(bruta), total ? `${Math.round(bruta / total * 100)}% de lo vendido` : "", "pos"),
+        kfila("Gastos", "−" + $$m(gt), `${gastos.length} gastos cargados`),
+        kfila("<b>Ganancia neta</b>", `<b>${$$m(neta)}</b>`, "lo que te queda", neta >= 0 ? "pos" : "neg"),
+      ])}
+      ${resumen("Stock", [
+        kfila("Prendas en stock", num(uStock), `${activos.length} modelos`),
+        kfila("Stock al costo", $$m(vCosto), "lo que pagaste"),
+        kfila("Stock a la venta", $$m(vVenta), `si vendés todo · ganancia ${$$m(vVenta - vCosto)}`),
+        kfila("Compras de mercadería", $$m(comprasT), "ingresadas en el período"),
+      ])}
     </div>
     <div class="grid g2 sec">
-      <div class="card glass"><h2>Ventas ${per === "hoy" ? "por hora" : per === "anio" ? "por mes" : "por día"}</h2>
+      <div class="card glass"><h2>Ventas ${per === "hoy" ? "por hora" : per === "anio" || per === "todo" ? "por mes" : "por día"}</h2>
         ${act.length ? `<div class="barras">${grupos.map(g => `<div class="b" title="${esc(g.l)}: ${$$m(g.v)}"><span style="height:${g.v / maxG * 100}%"></span><small>${g.l}</small></div>`).join("")}</div>`
           : `<div class="vacio"><div class="emo">🛍️</div>Todavía no hay ventas en este período</div>`}
-        ${act.length ? `<div class="mini" style="margin-top:8px">Ticket promedio ${$$m(total / act.length)}</div>` : ""}
       </div>
       <div class="card glass"><h2>Lo más vendido</h2>
         ${topL.length ? topL.map(t => `<div class="hbar"><span class="nm">${esc(t.n)}</span><span class="tr"><span style="width:${t.u / maxT * 100}%"></span></span><span class="vl">${t.u} u.</span></div>`).join("") : `<div class="vacio">—</div>`}
         ${metL.length ? `<div class="sep"></div><h2>Cómo te pagaron</h2>${metL.map(([m, v]) => `<div class="hbar"><span class="nm">${esc(m)}</span><span class="tr"><span style="width:${v / maxM * 100}%"></span></span><span class="vl">${$$m(v)}</span></div>`).join("")}` : ""}
       </div>
-    </div>
-    <div class="grid g4 sec">
-      <div class="kpi glass"><div class="l">Prendas en stock</div><div class="v">${num(uStock)}</div><div class="d">${activos.length} modelos</div></div>
-      <div class="kpi glass"><div class="l">Stock al costo</div><div class="v">${$$m(vCosto)}</div><div class="d">lo que pagaste</div></div>
-      <div class="kpi glass"><div class="l">Stock a la venta</div><div class="v">${$$m(vVenta)}</div><div class="d">si vendés todo · gan. ${$$m(vVenta - vCosto)}</div></div>
-      <div class="kpi glass"><div class="l">Compras de mercadería</div><div class="v">${$$m(comprasT)}</div><div class="d">ingresadas en el período</div></div>
     </div>
     <div class="card glass sec">
       <h2>⚠️ Para reponer</h2>
@@ -245,21 +257,36 @@ function vVender() {
   vista.innerHTML = `<h1>Nueva venta</h1>
     <div class="buscar">${ICO_BUSCAR}<input class="in" id="q" placeholder="Buscar prenda, código o proveedor…" value="${esc(f.q)}" autocomplete="off"></div>
     <div class="pills" id="cats">${pills(["Todas", ...catsUsadas()], f.cat)}</div>
-    <div class="prods" id="prods"></div>`;
+    <div class="mini" style="margin:0 6px 8px">Tocá un talle para sumarlo a la venta, o la fila para elegir cantidad y precio.</div>
+    <div class="glass lista" id="prods"></div>`;
   const pintar = () => {
     const q = normal(f.q);
     let lista = S.productos.filter(p => p.activo !== false
       && (f.cat === "Todas" || (p.categoria || "Otros") === f.cat)
       && (!q || normal(`${p.nombre} ${p.codigo || ""} ${provNombre(p.proveedor_id)}`).includes(q)));
     lista.sort((a, b) => (stockTotal(b) > 0) - (stockTotal(a) > 0) || a.nombre.localeCompare(b.nombre));
-    $("#prods").innerHTML = lista.length ? lista.map(p => {
+    const enCarrito = vid => sum(S.carrito.filter(c => c.variante_id === vid), c => c.cantidad);
+    $("#prods").innerHTML = lista.length ? lista.slice(0, 200).map(p => {
       const st = stockTotal(p);
-      return `<button class="prod glass ${st ? "" : "sin"}" data-id="${p.id}">
-        <span class="nom">${esc(p.nombre)}</span>
-        <span class="st">${st ? `${st} en stock · ${ordenarVar(p.variantes).filter(v => v.stock > 0).map(v => esc(v.talle)).join(" ")}` : "Sin stock"}</span>
-        <span class="pre">${$$m(p.precio)}</span></button>`;
-    }).join("") : `<div class="vacio" style="grid-column:1/-1"><div class="emo">🔍</div>No encontré nada</div>`;
-    $$(".prod", vista).forEach(b => b.onclick = () => elegirTalle(+b.dataset.id));
+      const vs = ordenarVar(p.variantes).filter(v => v.stock > 0);
+      return `<div class="fila ${st ? "" : "sin-stock"}" data-id="${p.id}">
+        <div class="info"><div class="tit">${esc(p.nombre)}</div>
+          <div class="mini" style="margin:2px 0 6px">${esc([p.categoria, provNombre(p.proveedor_id)].filter(Boolean).join(" · "))}${st ? "" : " · sin stock"}</div>
+          ${vs.length ? `<div class="talles">${vs.map(v => { const libre = v.stock - enCarrito(v.id);
+            return `<button class="t tb ${libre > 0 ? "" : "cero"}" data-add="${v.id}" data-pid="${p.id}" ${libre > 0 ? "" : "disabled"}>${esc(etiquetaVar(v))} <i>${libre}</i></button>`; }).join("")}</div>` : ""}
+        </div>
+        <div class="der"><div class="monto">${$$m(p.precio)}</div>${st ? `<div class="mini">${st} u.</div>` : ""}</div></div>`;
+    }).join("") : `<div class="vacio"><div class="emo">🔍</div>No encontré nada</div>`;
+    $$(".fila", $("#prods")).forEach(r => r.onclick = () => elegirTalle(+r.dataset.id));
+    $$("[data-add]", $("#prods")).forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      const p = S.productos.find(x => x.id === +b.dataset.pid), v = p.variantes.find(x => x.id === +b.dataset.add);
+      if (v.stock - enCarrito(v.id) <= 0) return toast("No hay más stock de ese talle", true);
+      const ya = S.carrito.find(c => c.variante_id === v.id && c.precio_unit === +p.precio);
+      if (ya) ya.cantidad++;
+      else S.carrito.push({ variante_id: v.id, producto_id: p.id, nombre: p.nombre, talle: v.talle, color: v.color, cantidad: 1, precio_unit: +p.precio, stock: v.stock });
+      pintarCarrito(); pintar(); toast(`Agregado: ${p.nombre} ${etiquetaVar(v)}`);
+    });
   };
   $("#q").oninput = e => { f.q = e.target.value; pintar(); };
   activarPills($("#cats"), "data-p", c => { f.cat = c; pintar(); });
@@ -620,7 +647,7 @@ function actualizarPrecios(lista) {
 async function vVentas() {
   const per = S.filtros.ventas;
   vista.innerHTML = `<h1>Ventas</h1>
-    <div class="pills">${pills([["hoy", "Hoy"], ["ayer", "Ayer"], ["semana", "7 días"], ["mes", "Este mes"], ["mespasado", "Mes pasado"], ["anio", "Este año"]], per)}</div>
+    <div class="pills">${pills([["hoy", "Hoy"], ["ayer", "Ayer"], ["semana", "7 días"], ["mes", "Este mes"], ["mespasado", "Mes pasado"], ["anio", "Este año"], ["todo", "Todo"]], per)}</div>
     <div id="cont">${cargando("Cargando ventas…")}</div>`;
   activarPills(vista, "data-p", p => { S.filtros.ventas = p; vVentas(); });
   const [d, h] = rango(per);
@@ -629,11 +656,10 @@ async function vVentas() {
   const total = sum(act, v => v.total), gan = total - sum(act, v => v.costo_total);
   const porDia = {};
   ventas.forEach(v => (porDia[dia(new Date(v.fecha))] ||= []).push(v));
-  $("#cont").innerHTML = `<div class="grid g3">
-      <div class="kpi glass destacado"><div class="l">Vendido</div><div class="v">${$$m(total)}</div><div class="d">${act.length} ventas</div></div>
-      <div class="kpi glass"><div class="l">Ganancia bruta</div><div class="v pos">${$$m(gan)}</div><div class="d">sin contar gastos</div></div>
-      <div class="kpi glass"><div class="l">Prendas</div><div class="v">${sum(act.flatMap(v => v.venta_items), i => i.cantidad)}</div><div class="d">${act.length ? "ticket prom. " + $$m(total / act.length) : "—"}</div></div>
-    </div>
+  $("#cont").innerHTML = `${resumen("", [
+      kfila("Vendido", $$m(total), `${act.length} ventas · ${sum(act.flatMap(v => v.venta_items), i => i.cantidad)} prendas${act.length ? " · ticket prom. " + $$m(total / act.length) : ""}`),
+      kfila("Ganancia bruta", $$m(gan), "sin contar gastos", "pos"),
+    ])}
     <div class="acciones" style="margin:12px 0 0"><button class="btn chico" id="exp">⬇︎ Exportar</button></div>
     ${ventas.length ? Object.entries(porDia).map(([k, vs]) => `
       <div class="dia-cab"><span style="text-transform:capitalize">${fechaLarga(vs[0].fecha)}</span><span>${$$m(sum(vs.filter(v => !v.anulada), v => v.total))}</span></div>
@@ -693,11 +719,11 @@ async function vGastos() {
   const porCat = {};
   gastos.forEach(g => porCat[g.categoria] = (porCat[g.categoria] || 0) + +g.monto);
   const cats = Object.entries(porCat).sort((a, b) => b[1] - a[1]), max = Math.max(1, ...cats.map(c => c[1]));
-  $("#cont").innerHTML = `<div class="grid g3">
-      <div class="kpi glass"><div class="l">Gastos del mes</div><div class="v">${$$m(total)}</div><div class="d">${gastos.length} cargados · fijos ${$$m(sum(gastos.filter(g => g.fijo), g => g.monto))}</div></div>
-      <div class="kpi glass"><div class="l">Ganancia bruta</div><div class="v pos">${$$m(bruta)}</div><div class="d">de las ventas del mes</div></div>
-      <div class="kpi glass destacado"><div class="l">Te queda</div><div class="v ${bruta - total >= 0 ? "pos" : "neg"}">${$$m(bruta - total)}</div><div class="d">ganancia − gastos</div></div>
-    </div>
+  $("#cont").innerHTML = `${resumen("", [
+      kfila("Ganancia bruta del mes", $$m(bruta), "de las ventas", "pos"),
+      kfila("Gastos del mes", "−" + $$m(total), `${gastos.length} cargados · fijos ${$$m(sum(gastos.filter(g => g.fijo), g => g.monto))}`),
+      kfila("<b>Te queda</b>", `<b>${$$m(bruta - total)}</b>`, "ganancia − gastos", bruta - total >= 0 ? "pos" : "neg"),
+    ])}
     <div class="acciones sec"><button class="btn chico" id="copiar">↻ Copiar gastos fijos del mes anterior</button></div>
     ${cats.length ? `<div class="card glass sec"><h2>En qué se fue</h2>${cats.map(([c, v]) => `<div class="hbar"><span class="nm">${esc(c)}</span><span class="tr"><span style="width:${v / max * 100}%"></span></span><span class="vl">${$$m(v)}</span></div>`).join("")}</div>` : ""}
     ${gastos.length ? `<div class="glass lista sec">${gastos.map(g => `<div class="fila" data-id="${g.id}">
@@ -776,12 +802,12 @@ async function vMas(sub) {
   if (sub === "ajustes") return vAjustes();
   if (sub === "exportar") return vExportar();
   vista.innerHTML = `<h1>Más</h1>
-    <div class="menu-mas">
-      <a class="glass" href="#mas/proveedores"><span class="emo">🏭</span><b>Proveedores</b><span class="mini">${S.proveedores.length} cargados</span></a>
-      <a class="glass" href="#mas/clientes"><span class="emo">👥</span><b>Clientes</b><span class="mini">Quién te compra y cuánto</span></a>
-      <a class="glass" href="#mas/movimientos"><span class="emo">🔄</span><b>Movimientos</b><span class="mini">Todo lo que entró y salió del stock</span></a>
-      <a class="glass" href="#mas/exportar"><span class="emo">⬇️</span><b>Exportar</b><span class="mini">Bajar todo a Excel</span></a>
-      <a class="glass" href="#mas/ajustes"><span class="emo">⚙️</span><b>Ajustes</b><span class="mini">Datos del negocio, ganancia por defecto</span></a>
+    <div class="glass lista">
+      <a class="fila" href="#mas/proveedores"><div class="avatar">🏭</div><div class="info"><div class="tit">Proveedores</div><div class="mini">${S.proveedores.length} cargados</div></div><span class="mini">›</span></a>
+      <a class="fila" href="#mas/clientes"><div class="avatar">👥</div><div class="info"><div class="tit">Clientes</div><div class="mini">Quién te compra y cuánto</div></div><span class="mini">›</span></a>
+      <a class="fila" href="#mas/movimientos"><div class="avatar">🔄</div><div class="info"><div class="tit">Movimientos de stock</div><div class="mini">Todo lo que entró y salió</div></div><span class="mini">›</span></a>
+      <a class="fila" href="#mas/exportar"><div class="avatar">⬇️</div><div class="info"><div class="tit">Exportar</div><div class="mini">Bajar todo a Excel</div></div><span class="mini">›</span></a>
+      <a class="fila" href="#mas/ajustes"><div class="avatar">⚙️</div><div class="info"><div class="tit">Ajustes</div><div class="mini">Datos del negocio, ganancia por defecto</div></div><span class="mini">›</span></a>
     </div>
     ${S.api.demo ? `<div class="card glass sec"><h2>Modo demo</h2><p class="sub">Estás viendo datos de prueba guardados solo en este navegador. Cuando se conecte la base de datos, esto desaparece.</p>
       <button class="btn chico peligro" id="reset">Borrar datos de prueba</button></div>` : ""}`;

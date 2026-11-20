@@ -280,3 +280,16 @@ select.in option { background: #10241c; }
   padding-top: calc(70px + env(safe-area-inset-top)); animation: ap .15s; cursor: progress; }
 .ocupado-pill { display: flex; align-items: center; gap: 12px; padding: 14px 22px; border-radius: 999px; font-weight: 700; font-size: 15px;
   background: rgba(18, 45, 34, .92); border-color: rgba(37, 211, 102, .35); }
+
+/* Listados */
+.lista-cab { padding: 12px 14px 4px; font-size: 12px; font-weight: 700; color: var(--texto-2); text-transform: uppercase; letter-spacing: .6px; }
+.kfila { cursor: default; padding: 11px 14px; }
+.kfila:hover { background: none; }
+.kfila .monto { font-size: 17px; }
+a.fila { text-decoration: none; color: var(--texto); }
+.fila.sin-stock { opacity: .5; }
+button.t.tb { border: 1px solid rgba(37, 211, 102, .25); cursor: pointer; padding: 5px 11px; font-size: 13px; transition: .12s; }
+button.t.tb:hover { background: rgba(37, 211, 102, .3); }
+button.t.tb:active { transform: scale(.94); }
+button.t.tb:disabled { cursor: not-allowed; border-color: transparent; }
+.barras .b small { white-space: nowrap; overflow: hidden; max-width: 100%; }

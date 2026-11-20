@@ -374,6 +374,40 @@ var ACCIONES = {
     if (r > 0) sh.getRange(r, 1, 1, 2).setValues([fila]); else sh.appendRow(fila);
   },
 
+  // Ventas viejas de la planilla: NO tocan el stock (la columna STOCK ya las tenía descontadas)
+  importarVentasPlanilla: function (lista) {
+    if (todos('Ventas').some(function (v) { return v.canal === 'Planilla'; })) throw new Error('Las ventas de la planilla ya estaban cargadas');
+    var provs = {}, prods = {}, vars = {};
+    todos('Proveedores').forEach(function (p) { provs[p.nombre] = p.id; });
+    todos('Productos').forEach(function (p) { prods[p.proveedor_id + '|' + p.nombre] = p; });
+    todos('Variantes').forEach(function (v) { vars[v.producto_id + '|' + v.talle + '|' + (v.color || '')] = v; });
+    var ventas = lista.map(function (x) {
+      return { fecha: x.fecha + 'T15:00:00.000Z', cliente_id: null, cliente_nombre: null, metodo_pago: 'Sin dato', canal: 'Planilla',
+        subtotal: x.precio * x.cantidad, descuento: 0, recargo: 0, total: x.precio * x.cantidad, costo_total: x.costo * x.cantidad,
+        nota: x.nota, anulada: false };
+    });
+    insertarVarios('Ventas', ventas);
+    insertarVarios('VentaItems', lista.map(function (x, i) {
+      var p = prods[provs[x.prov] + '|' + x.nombre];
+      var v = p && vars[p.id + '|' + x.talle + '|' + (x.color || '')];
+      return { venta_id: ventas[i].id, variante_id: v ? v.id : null, producto_id: p ? p.id : null, producto_nombre: x.nombre,
+        talle: x.talle, color: x.color || '', cantidad: x.cantidad, precio_unit: x.precio, costo_unit: x.costo };
+    }));
+    return { ventas: ventas.length, prendas: lista.reduce(function (t, x) { return t + x.cantidad; }, 0) };
+  },
+
+  // Borra solo las ventas de prueba del sistema (anuladas, con nota "PRUEBA del sistema"), sus renglones y movimientos
+  limpiarPruebas: function () {
+    var ids = todos('Ventas').filter(function (v) { return v.anulada && /^PRUEBA del sistema/.test(v.nota || ''); })
+      .map(function (v) { return v.id; });
+    ids.forEach(function (id) {
+      todos('VentaItems').filter(function (i) { return i.venta_id === id; }).forEach(function (i) { borrar('VentaItems', i.id); });
+      todos('Movimientos').filter(function (m) { return m.venta_id === id; }).forEach(function (m) { borrar('Movimientos', m.id); });
+      borrar('Ventas', id);
+    });
+    return ids.length;
+  },
+
   // Carga inicial desde la planilla vieja (solo si no hay prendas cargadas)
   importarInicial: function (datos) {
     if (todos('Productos').length) throw new Error('Ya hay prendas cargadas: no importo para no duplicar');
