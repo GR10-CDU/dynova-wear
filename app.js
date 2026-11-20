@@ -525,12 +525,10 @@ function editarProducto(id) {
       const ok = $("#ingOk", h);
       if (ok) ok.onclick = () => intentar(async () => {
         const costo = +$("#ingCosto", h).value || 0, nota = $("#ingNota", h).value || "Ingreso de mercadería";
-        let n = 0;
-        for (const i of $$("[data-ing]", h)) {
-          const q = parseInt(i.value);
-          if (q > 0) { const v = p.variantes.find(x => x.id === +i.dataset.ing); v.stock = await S.api.moverStock(v.id, q, "compra", nota, costo); n += q; }
-        }
+        const lista = $$("[data-ing]", h).map(i => ({ id: +i.dataset.ing, cantidad: parseInt(i.value) || 0 })).filter(x => x.cantidad > 0);
+        const n = sum(lista, x => x.cantidad);
         if (!n) return toast("Poné cuántas entraron de cada talle", true);
+        for (const r of await S.api.moverStockVarios(lista, "compra", nota, costo)) p.variantes.find(x => x.id === r.id).stock = r.stock;
         if ($("#ingAct", h).checked && costo) {
           reemplazarProducto(await S.api.guardarProducto({ id: p.id, costo }));
           iCosto.value = costo; iMarg.value = margen(costo, +iPrecio.value);
@@ -563,16 +561,11 @@ function editarProducto(id) {
       const datos = { nombre, categoria: $("#cat", h).value.trim() || null, genero: genero || null, proveedor_id: prov && prov !== "nuevo" ? +prov : null,
         codigo: $("#cod", h).value.trim() || null, costo: +iCosto.value || 0, precio: +iPrecio.value || 0, notas: $("#notas", h).value.trim() || null };
       if (id) datos.id = id;
-      let guardado = await S.api.guardarProducto(datos);
-      for (const i of $$("[data-min]", h)) {
-        const v = p.variantes.find(x => x.id === +i.dataset.min);
-        if (v && +i.value !== (v.stock_minimo ?? 0)) await S.api.editarVariante(v.id, { stock_minimo: +i.value || 0 });
-      }
-      for (const n of nuevas) {
-        const v = await S.api.crearVariante({ producto_id: guardado.id, talle: n.talle, color: n.color, stock: 0, stock_minimo: c.minimo, orden: ordenTalle(n.talle) });
-        if (n.stock > 0) await S.api.moverStock(v.id, n.stock, "alta", "Stock inicial", +iCosto.value || null);
-      }
-      await cargarCatalogo();
+      const minimos = $$("[data-min]", h).map(i => ({ id: +i.dataset.min, stock_minimo: +i.value || 0 }))
+        .filter(m => { const v = p.variantes.find(x => x.id === m.id); return v && m.stock_minimo !== (v.stock_minimo ?? 0); });
+      const guardado = await S.api.guardarProductoCompleto(datos, minimos,
+        nuevas.map(n => ({ ...n, orden: ordenTalle(n.talle) })), c.minimo);
+      reemplazarProducto(guardado);
       toast(id ? "Cambios guardados" : "Prenda creada");
       cerrarHoja();
       if (location.hash.startsWith("#stock") || !location.hash) vStock(); else router();

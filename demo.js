@@ -41,6 +41,20 @@ export async function crearApiDemo() {
       return conVar(db.productos.find(x => x.id === o.id));
     },
     async borrarProducto(id) { quitar("productos", id); db.variantes = db.variantes.filter(v => v.producto_id !== id); guardar(); },
+    async guardarProductoCompleto(datos, minimos, nuevas, minimoDefecto) {
+      const p = await this.guardarProducto(datos);
+      for (const m of minimos || []) editar("variantes", m.id, { stock_minimo: m.stock_minimo });
+      for (const n of nuevas || []) {
+        const v = await this.crearVariante({ producto_id: p.id, talle: n.talle, color: n.color || "", stock: 0, stock_minimo: minimoDefecto || 0, orden: n.orden || 0 });
+        if (n.stock > 0) await this.moverStock(v.id, n.stock, "alta", "Stock inicial", p.costo);
+      }
+      return conVar(db.productos.find(x => x.id === p.id));
+    },
+    async moverStockVarios(lista, tipo, nota, costo) {
+      const r = [];
+      for (const x of lista) r.push({ id: x.id, stock: await this.moverStock(x.id, x.cantidad, tipo, nota, costo) });
+      return r;
+    },
     async actualizarPrecios(lista) { for (const x of lista) editar("productos", x.id, { precio: x.precio }); },
     async crearVariante(v) {
       if (db.variantes.some(x => x.producto_id === v.producto_id && x.talle === v.talle && (x.color || "") === (v.color || "")))
